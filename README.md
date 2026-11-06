@@ -1,0 +1,2 @@
+# AutoClean-AI-Autonomous-Multi-Agent-Data-Engineering-Pipelin
+AutoClean AI is a production-grade, autonomous multi-agent pipeline designed to automate the ingestion, cleaning, validation, and visualization of messy  datasets. By deploying a specialized LLM agents within strict governance guardrails it eliminates fragile scripting and manual wrangling while maintaining critical human-in-the-loop oversight.
