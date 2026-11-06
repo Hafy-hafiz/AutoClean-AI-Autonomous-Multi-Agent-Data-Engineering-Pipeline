@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5-Agent Data Cleaning Pipeline & Simulator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdfa',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            700: '#0f766e',
+                            900: '#134e4a',
+                            glow: '#00f2fe'
+                        },
+                        darkbg: '#080c14',
+                        cardbg: '#0f172a',
+                        borderbg: '#1e293b'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'JetBrains Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Plotly.js for Charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #080c14;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        /* Slider Custom Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: #1e293b;
+            border-radius: 8px;
+            height: 6px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #14b8a6;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(20, 184, 166, 0.6);
+            transition: all 0.15s ease-in-out;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+            background: #2dd4bf;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(20, 184, 166, 0.3); border-color: #14b8a6; }
+            50% { box-shadow: 0 0 25px rgba(20, 184, 166, 0.7); border-color: #2dd4bf; }
+        }
+        .active-agent-glow {
+            animation: pulse-glow 1.8s infinite ease-in-out;
+        }
+
+        .terminal-text {
+            font-family: 'Fira Code', monospace;
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 font-sans min-h-screen flex flex-col overflow-x-hidden antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- Header & Top Bar -->
+    <header class="border-b border-borderbg bg-cardbg/90 backdrop-blur-md sticky top-0 z-40 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-cyan-400 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-500/20">
+                <i class="fa-solid fa-robot"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-base md:text-lg tracking-wide text-white flex items-center gap-2">
+                    5-Agent Data Cleaning Pipeline & Simulator
+                    <span class="text-[11px] px-2.5 py-0.5 rounded-full bg-brand-900/80 text-brand-400 border border-brand-500/30 font-semibold tracking-normal">Production v2.5</span>
+                </h1>
+                <p class="text-xs text-slate-400">Plan-Execute-Validate Multi-Agent CSV Quality Engine</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-3">
+            <div class="bg-slate-900 border border-slate-800 p-1 rounded-xl flex items-center text-xs">
+                <button id="mode-sim" onclick="setMode('sim')" class="px-3 py-1 rounded-lg font-medium bg-brand-600 text-white transition">Interactive Simulation</button>
+                <button id="mode-sandbox" onclick="setMode('sandbox')" class="px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition">Live Sandbox</button>
+            </div>
+
+            <button onclick="resetAllLevers()" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition">
+                <i class="fa-solid fa-rotate-left mr-1.5"></i> Reset
+            </button>
+
+            <button onclick="triggerPipelineRun()" class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 shadow-md shadow-brand-500/20 flex items-center space-x-2 transition transform active:scale-95">
+                <i class="fa-solid fa-play"></i>
+                <span>Run Pipeline</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 p-6 max-w-[1750px] w-full mx-auto space-y-6">
+
+        <!-- Section 1: Scenario Controls (Sliders & Model Tier) + Target KPIs -->
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- Control Levers Panel -->
+            <div class="lg:col-span-7 bg-cardbg border border-borderbg rounded-2xl p-5 flex flex-col justify-between space-y-4">
+                <div class="flex items-center justify-between border-b border-borderbg pb-3">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-brand-500"></i>
+                        Agent Configuration Levers
+                    </h2>
+                    <span class="text-[11px] text-slate-400">Tweak variables to recalculate quality & costs</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- Model Tier Selector -->
+                    <div class="space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <label for="lever-model-tier" class="text-xs font-medium text-slate-200 flex justify-between items-center">
+                            <span>LLM Model Cost Tier</span>
+                            <span id="val-model-tier" class="font-mono text-cyan-400 font-bold text-xs">Balanced (GPT-4o-mini)</span>
+                        </label>
+                        <select id="lever-model-tier" onchange="recalculateAll()" class="w-full bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 px-2.5 py-1.5 focus:outline-none focus:border-brand-500 font-medium">
+                            <option value="economy">Economy (GPT-3.5 Turbo / Claude Haiku)</option>
+                            <option value="balanced" selected>Balanced (GPT-4o-mini / Gemini Flash)</option>
+                            <option value="high">High-Performance (GPT-4o / Claude Sonnet)</option>
+                        </select>
+                        <p class="text-[10px] text-slate-400">Impacts reasoning depth, error detection, and token cost.</p>
+                    </div>
+
+                    <!-- Confidence Threshold Slider -->
+                    <div class="space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between items-center text-xs">
+                            <label for="lever-confidence" class="font-medium text-slate-200">Auto-Approve Confidence</label>
+                            <span id="val-confidence" class="font-mono text-emerald-400 font-bold">85%</span>
+                        </div>
+                        <input type="range" id="lever-confidence" min="50" max="99" value="85" step="1" oninput="recalculateAll()" class="w-full">
+                        <p class="text-[10px] text-slate-400">LLM fixes below this score require Human Approval.</p>
+                    </div>
+
+                    <!-- Null Imputation Sensitivity Slider -->
+                    <div class="space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between items-center text-xs">
+                            <label for="lever-null-thresh" class="font-medium text-slate-200">Null Imputation Thresh</label>
+                            <span id="val-null-thresh" class="font-mono text-brand-400 font-bold">25%</span>
+                        </div>
+                        <input type="range" id="lever-null-thresh" min="5" max="60" value="25" step="1" oninput="recalculateAll()" class="w-full">
+                        <p class="text-[10px] text-slate-400">Nulls &gt; threshold drop column; else impute.</p>
+                    </div>
+
+                    <!-- Outlier Z-Score Sensitivity Slider -->
+                    <div class="space-y-1.5 bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                        <div class="flex justify-between items-center text-xs">
+                            <label for="lever-zscore" class="font-medium text-slate-200">Outlier Z-Score Limit</label>
+                            <span id="val-zscore" class="font-mono text-purple-400 font-bold">3.0 σ</span>
+                        </div>
+                        <input type="range" id="lever-zscore" min="1.5" max="3.5" value="3.0" step="0.1" oninput="recalculateAll()" class="w-full">
+                        <p class="text-[10px] text-slate-400">Strictness for capping extreme numeric values.</p>
+                    </div>
+
+                </div>
+
+                <!-- Footer Dataset Row & Retry Circuit Breaker Slider -->
+                <div class="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-slate-400 font-medium">Dataset Scenario:</span>
+                        <select id="dataset-selector" onchange="changeDatasetScenario()" class="bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 px-2 py-1 focus:outline-none focus:border-brand-500 font-medium">
+                            <option value="healthcare">Healthcare Records (500 rows - Outliers)</option>
+                            <option value="ecommerce">E-Commerce Orders (800 rows - Type Mismatch)</option>
+                            <option value="finance">Financial Auditing (1,200 rows - Null heavy)</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        <span class="text-slate-400 font-medium">Max Retries:</span>
+                        <input type="range" id="lever-retries" min="1" max="5" value="3" step="1" oninput="recalculateAll()" class="w-20">
+                        <span id="val-retries" class="font-mono text-amber-400 font-bold">3</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI Dashboard Panel -->
+            <div class="lg:col-span-5 bg-cardbg border border-borderbg rounded-2xl p-5 flex flex-col justify-between">
+                <div class="flex items-center justify-between border-b border-borderbg pb-3">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-brand-500"></i>
+                        Live Target KPI Dashboard
+                    </h2>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-brand-500/20 text-brand-300 font-mono">Real-Time</span>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 my-2">
+                    <!-- KPI 1: Quality Score -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[10px] text-slate-400 font-medium block">Data Quality Score</span>
+                        <div class="flex items-baseline space-x-1 mt-1">
+                            <span id="kpi-quality" class="text-xl font-extrabold font-mono text-emerald-400">95.2%</span>
+                            <span class="text-[10px] text-emerald-500 font-semibold">+22%</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                            <div id="bar-quality" class="bg-emerald-400 h-full transition-all duration-300" style="width: 95.2%"></div>
+                        </div>
+                    </div>
+
+                    <!-- KPI 2: Row Preservation -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[10px] text-slate-400 font-medium block">Row Preservation</span>
+                        <div class="flex items-baseline space-x-1 mt-1">
+                            <span id="kpi-retention" class="text-xl font-extrabold font-mono text-brand-400">98.4%</span>
+                            <span id="kpi-retention-count" class="text-[10px] text-slate-400">492/500</span>
+                        </div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                            <div id="bar-retention" class="bg-brand-500 h-full transition-all duration-300" style="width: 98.4%"></div>
+                        </div>
+                    </div>
+
+                    <!-- KPI 3: API Token Cost -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[10px] text-slate-400 font-medium block">API Cost / 100k Rows</span>
+                        <div class="flex items-baseline space-x-1 mt-1">
+                            <span id="kpi-cost" class="text-xl font-extrabold font-mono text-cyan-400">$1.24</span>
+                        </div>
+                        <span id="kpi-tokens" class="text-[9px] text-slate-500 block mt-1">~125k Tokens</span>
+                    </div>
+
+                    <!-- KPI 4: Human Review Load -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                        <span class="text-[10px] text-slate-400 font-medium block">Human Review Load</span>
+                        <div class="flex items-baseline space-x-1 mt-1">
+                            <span id="kpi-human-load" class="text-xl font-extrabold font-mono text-amber-400">14%</span>
+                            <span class="text-[10px] text-slate-400">of fixes</span>
+                        </div>
+                        <span id="kpi-escalations" class="text-[9px] text-slate-500 block mt-1">2 Escalations</span>
+                    </div>
+
+                    <!-- KPI 5: Time Saved -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 col-span-2 md:col-span-2">
+                        <span class="text-[10px] text-slate-400 font-medium block">Est. Time Saved vs Manual</span>
+                        <div class="flex items-baseline space-x-2 mt-1">
+                            <span id="kpi-time-saved" class="text-xl font-extrabold font-mono text-purple-400">4.2 Hours</span>
+                            <span class="text-[10px] text-purple-400 font-semibold">(92% Speedup)</span>
+                        </div>
+                        <p class="text-[9px] text-slate-500 mt-1">Calculated against standard manual analyst data cleaning baseline.</p>
+                    </div>
+
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Section 2: Side-by-Side Strategy Battle Matrix -->
+        <section class="bg-cardbg border border-borderbg rounded-2xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-borderbg pb-3">
+                <div>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-trophy text-brand-500"></i>
+                        Side-by-Side Strategy Battle Matrix
+                    </h2>
+                    <p class="text-xs text-slate-400">Which strategy produces the best outcome based on your current lever settings?</p>
+                </div>
+                <div id="winning-badge" class="px-3 py-1 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center gap-2 self-start sm:self-auto">
+                    <i class="fa-solid fa-crown text-amber-400"></i>
+                    <span>WINNING STRATEGY: Predictive Hybrid AI</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                <!-- Strategy 1: Conservative -->
+                <div id="card-strat-1" class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase">Strategy A</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">Conservative Imputation</span>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Median / Mode Impute</h3>
+                        <p class="text-xs text-slate-400 mt-1">Preserves 100% of rows by filling missing values with central tendencies and capping values at Z-limit.</p>
+                    </div>
+                    <div class="space-y-1.5 border-t border-slate-800 pt-3 text-xs font-mono">
+                        <div class="flex justify-between"><span class="text-slate-500">Quality Score:</span> <span id="s1-q" class="text-slate-200 font-bold">91.5%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Row Preservation:</span> <span id="s1-r" class="text-emerald-400 font-bold">100.0%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">API Cost / 100k:</span> <span id="s1-c" class="text-slate-200">$0.85</span></div>
+                    </div>
+                </div>
+
+                <!-- Strategy 2: Aggressive -->
+                <div id="card-strat-2" class="bg-slate-900/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between space-y-3 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase">Strategy B</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">Aggressive Dropping</span>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Strict Row Elimination</h3>
+                        <p class="text-xs text-slate-400 mt-1">Drops any row containing missing fields or severe outliers. Guaranteed clean data, but loses row volume.</p>
+                    </div>
+                    <div class="space-y-1.5 border-t border-slate-800 pt-3 text-xs font-mono">
+                        <div class="flex justify-between"><span class="text-slate-500">Quality Score:</span> <span id="s2-q" class="text-slate-200 font-bold">99.8%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Row Preservation:</span> <span id="s2-r" class="text-amber-400 font-bold">78.0%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">API Cost / 100k:</span> <span id="s2-c" class="text-slate-200">$0.50</span></div>
+                    </div>
+                </div>
+
+                <!-- Strategy 3: Predictive Hybrid AI -->
+                <div id="card-strat-3" class="bg-slate-900/80 border-2 border-emerald-500/80 shadow-lg shadow-emerald-500/10 rounded-xl p-4 flex flex-col justify-between space-y-3 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold text-emerald-400 uppercase">Strategy C</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">Predictive Hybrid AI</span>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Contextual LLM + KNN</h3>
+                        <p class="text-xs text-slate-400 mt-1">Combines LLM contextual reasoning for text with KNN regression for numbers. High quality + high retention.</p>
+                    </div>
+                    <div class="space-y-1.5 border-t border-slate-800 pt-3 text-xs font-mono">
+                        <div class="flex justify-between"><span class="text-slate-500">Quality Score:</span> <span id="s3-q" class="text-emerald-400 font-bold">96.8%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Row Preservation:</span> <span id="s3-r" class="text-brand-400 font-bold">98.4%</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">API Cost / 100k:</span> <span id="s3-c" class="text-slate-200">$1.24</span></div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Section 3: Interactive 5-Agent Execution Visualizer -->
+        <section class="bg-cardbg border border-borderbg rounded-2xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-borderbg pb-3">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                    <i class="fa-solid fa-diagram-project text-brand-500"></i>
+                    5-Agent Execution Workflow Architecture
+                </h2>
+                <div class="text-xs text-slate-400">
+                    Circuit Breaker Status: <span id="circuit-counter" class="font-mono font-bold text-emerald-400">0 / 3 Attempts</span>
+                </div>
+            </div>
+
+            <!-- Agent Node Diagrams -->
+            <div class="grid grid-cols-1 md:grid-cols-6 gap-3 relative">
+
+                <!-- Agent 1 -->
+                <div id="node-a1" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">AGENT 1</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Idle</span>
+                    </div>
+                    <div>
+                        <div class="text-brand-400 mb-1"><i class="fa-solid fa-magnifying-glass"></i></div>
+                        <h4 class="text-xs font-bold text-white">Data Profiler</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Scans missingness & stats</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-slate-500 border-t border-slate-800 pt-1">Defect Report</span>
+                </div>
+
+                <!-- Agent 2 -->
+                <div id="node-a2" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">AGENT 2</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Idle</span>
+                    </div>
+                    <div>
+                        <div class="text-indigo-400 mb-1"><i class="fa-solid fa-brain"></i></div>
+                        <h4 class="text-xs font-bold text-white">Remediation Planner</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Drafts transformation plan</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-slate-500 border-t border-slate-800 pt-1">Plan JSON</span>
+                </div>
+
+                <!-- Human Checkpoint Node -->
+                <div id="node-human" class="bg-slate-900 border border-amber-500/30 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-amber-400">CHECKPOINT</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">Human</span>
+                    </div>
+                    <div>
+                        <div class="text-amber-400 mb-1"><i class="fa-solid fa-user-check"></i></div>
+                        <h4 class="text-xs font-bold text-white">Approval Gate</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Reviews low-confidence fixes</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-amber-400/80 border-t border-slate-800 pt-1">Risk Sign-off</span>
+                </div>
+
+                <!-- Agent 3 -->
+                <div id="node-a3" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">AGENT 3</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Idle</span>
+                    </div>
+                    <div>
+                        <div class="text-cyan-400 mb-1"><i class="fa-solid fa-code"></i></div>
+                        <h4 class="text-xs font-bold text-white">Code Executor</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Executes Pandas script</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-slate-500 border-t border-slate-800 pt-1">Cleaned DataFrame</span>
+                </div>
+
+                <!-- Agent 4 (Validator) -->
+                <div id="node-a4" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">AGENT 4</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Idle</span>
+                    </div>
+                    <div>
+                        <div class="text-emerald-400 mb-1"><i class="fa-solid fa-shield-halved"></i></div>
+                        <h4 class="text-xs font-bold text-white">Integrity Validator</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Verifies quality & retries</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-slate-500 border-t border-slate-800 pt-1">Validation Pass</span>
+                </div>
+
+                <!-- Agent 5 -->
+                <div id="node-a5" class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-bold text-slate-500">AGENT 5</span>
+                        <span class="agent-badge text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">Idle</span>
+                    </div>
+                    <div>
+                        <div class="text-purple-400 mb-1"><i class="fa-solid fa-chart-pie"></i></div>
+                        <h4 class="text-xs font-bold text-white">Dashboard Generator</h4>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Renders Streamlit app</p>
+                    </div>
+                    <span class="text-[9px] font-mono text-slate-500 border-t border-slate-800 pt-1">Streamlit `app.py`</span>
+                </div>
+
+            </div>
+
+            <!-- Terminal Stream Console -->
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 h-32 overflow-y-auto space-y-1">
+                <div class="text-slate-500">// Pipeline Execution Console Log Stream...</div>
+                <div id="console-logs" class="space-y-1 text-[11px]">
+                    <div class="text-slate-400">[System] Pipeline ready. Click "Run Pipeline" to execute simulation.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Data Inspection & Overrides Panel -->
+        <section class="bg-cardbg border border-borderbg rounded-2xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-borderbg pb-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="switchTab('tab-preview')" id="btn-tab-preview" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-600 text-white transition">Dataset Preview</button>
+                    <button onclick="switchTab('tab-chart')" id="btn-tab-chart" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-slate-400 hover:text-white transition">Quality Chart</button>
+                    <button onclick="switchTab('tab-overrides')" id="btn-tab-overrides" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-slate-400 hover:text-white transition">Column Overrides</button>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportAuditJson()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Export Audit JSON</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab 1: Dataset Preview -->
+            <div id="tab-preview" class="space-y-3">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="text-slate-400">Showing sample data state:</span>
+                    <div class="space-x-2">
+                        <button onclick="toggleDataState('before')" id="btn-state-before" class="px-2.5 py-1 rounded text-[11px] font-bold bg-brand-600 text-white">Before Cleaning</button>
+                        <button onclick="toggleDataState('after')" id="btn-state-after" class="px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 text-slate-400">After Cleaning</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-slate-800 max-h-64">
+                    <table class="w-full text-left text-xs font-mono">
+                        <thead id="data-thead" class="bg-slate-900 text-slate-400 sticky top-0 border-b border-slate-800"></thead>
+                        <tbody id="data-tbody" class="divide-y divide-slate-800/60 bg-slate-950/60 text-slate-300"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: Quality Chart -->
+            <div id="tab-chart" class="hidden h-64 w-full">
+                <div id="plotly-defect-chart" class="w-full h-full"></div>
+            </div>
+
+            <!-- Tab 3: Column Overrides -->
+            <div id="tab-overrides" class="hidden space-y-3 text-xs">
+                <p class="text-slate-400">Customize specific remediation behaviors for individual dataset columns:</p>
+                <div id="override-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <!-- Dynamic column overrides -->
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Interactive Human Approval Checkpoint Modal -->
+    <div id="human-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-cardbg border border-amber-500/40 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-borderbg pb-3">
+                <div class="flex items-center space-x-2 text-amber-400">
+                    <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+                    <h3 class="font-bold text-sm text-white">Human Approval Checkpoint Triggered</h3>
+                </div>
+                <span class="text-xs font-mono text-slate-400">Agent 2 Strategy Sign-Off</span>
+            </div>
+
+            <div class="space-y-2 text-xs text-slate-300">
+                <p>The automated confidence for 1 fix is below your set threshold (<span id="modal-conf-val" class="font-bold text-amber-400">85%</span>):</p>
+                
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 space-y-1 font-mono text-[11px]">
+                    <div class="flex justify-between"><span class="text-slate-500">Target Column:</span> <span class="text-slate-200 font-bold">age</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">Action:</span> <span class="text-cyan-400">impute_median</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">LLM Confidence:</span> <span class="text-amber-400 font-bold">78%</span></div>
+                    <div class="flex justify-between"><span class="text-slate-500">Reasoning:</span> <span class="text-slate-300">Outlier detected (145 years). Cap to median (42).</span></div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-2">
+                <button onclick="resolveHumanApproval(false)" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition">Reject & Escalated</button>
+                <button onclick="resolveHumanApproval(true)" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 shadow-md transition">Approve & Execute</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // Sample Scenario Data Definitions
+        const datasetScenarios = {
+            healthcare: {
+                name: "Healthcare Records",
+                totalRows: 500,
+                baseDefects: 0.22,
+                columns: ["patient_id", "age", "blood_pressure", "cholesterol", "outcome"],
+                raw: [
+                    { patient_id: "P001", age: 45, blood_pressure: 120, cholesterol: 210, outcome: "Stable" },
+                    { patient_id: "P002", age: null, blood_pressure: 135, cholesterol: 195, outcome: "Critical" },
+                    { patient_id: "P003", age: 34, blood_pressure: null, cholesterol: 240, outcome: "Stable" },
+                    { patient_id: "P004", age: 145, blood_pressure: 140, cholesterol: null, outcome: "Stable" },
+                    { patient_id: "P005", age: 52, blood_pressure: 115, cholesterol: 180, outcome: "Stable" },
+                    { patient_id: "P006", age: null, blood_pressure: 128, cholesterol: 220, outcome: "Critical" }
+                ]
+            },
+            ecommerce: {
+                name: "E-Commerce Orders",
+                totalRows: 800,
+                baseDefects: 0.18,
+                columns: ["order_id", "price", "quantity", "discount", "status"],
+                raw: [
+                    { order_id: "1001", price: 49.99, quantity: 2, discount: 0.1, status: "Shipped" },
+                    { order_id: "1002", price: null, quantity: 1, discount: 0.0, status: "Delivered" },
+                    { order_id: "1003", price: 199.99, quantity: null, discount: 0.2, status: "Pending" },
+                    { order_id: "1004", price: 15000.0, quantity: 1, discount: 0.5, status: "Shipped" }
+                ]
+            },
+            finance: {
+                name: "Financial Auditing",
+                totalRows: 1200,
+                baseDefects: 0.28,
+                columns: ["tx_id", "amount", "risk_score", "user_age", "flagged"],
+                raw: [
+                    { tx_id: "T101", amount: 250.0, risk_score: 0.02, user_age: 38, flagged: "0" },
+                    { tx_id: "T102", amount: null, risk_score: 0.85, user_age: 42, flagged: "1" },
+                    { tx_id: "T103", amount: 98000.0, risk_score: 0.99, user_age: null, flagged: "1" }
+                ]
+            }
+        };
+
+        let currentDatasetKey = "healthcare";
+        let activeDataState = "before";
+        let humanApprovalPromiseResolver = null;
+
+        window.onload = function() {
+            recalculateAll();
+            renderDataTable();
+            renderOverridesTab();
+        };
+
+        function setMode(mode) {
+            document.getElementById('mode-sim').className = mode === 'sim' ? 'px-3 py-1 rounded-lg font-medium bg-brand-600 text-white transition' : 'px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition';
+            document.getElementById('mode-sandbox').className = mode === 'sandbox' ? 'px-3 py-1 rounded-lg font-medium bg-brand-600 text-white transition' : 'px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition';
+            logConsole(`[System] Switched to ${mode === 'sim' ? 'Interactive Simulation' : 'Live Sandbox'} mode.`);
+        }
+
+        function recalculateAll() {
+            const modelTier = document.getElementById('lever-model-tier').value;
+            const confidenceThresh = parseInt(document.getElementById('lever-confidence').value);
+            const nullThresh = parseInt(document.getElementById('lever-null-thresh').value);
+            const zscore = parseFloat(document.getElementById('lever-zscore').value);
+            const retries = parseInt(document.getElementById('lever-retries').value);
+
+            // Update Labels
+            document.getElementById('val-confidence').innerText = confidenceThresh + "%";
+            document.getElementById('val-null-thresh').innerText = nullThresh + "%";
+            document.getElementById('val-zscore').innerText = zscore.toFixed(1) + " σ";
+            document.getElementById('val-retries').innerText = retries;
+
+            const ds = datasetScenarios[currentDatasetKey];
+
+            // Tier multiplier for cost and accuracy
+            let costMultiplier = 1.0;
+            let accuracyBoost = 0;
+            if (modelTier === 'economy') { costMultiplier = 0.3; accuracyBoost = -3.0; }
+            if (modelTier === 'balanced') { costMultiplier = 1.0; accuracyBoost = 0; }
+            if (modelTier === 'high') { costMultiplier = 3.5; accuracyBoost = 3.5; }
+
+            // KPI Calculations
+            const qualityScore = Math.min(99.5, 82.0 + (zscore * 3.5) + (nullThresh * 0.15) + accuracyBoost).toFixed(1);
+            const retentionRate = (100.0 - (ds.baseDefects * 8.0)).toFixed(1);
+            const tokenCost = (1.24 * costMultiplier * (1 + (retries * 0.1))).toFixed(2);
+            
+            // Human review load increases if confidence threshold is high
+            const humanReviewLoad = Math.max(5, Math.round((confidenceThresh - 60) * 0.8));
+            const timeSavedHours = (ds.totalRows * 0.0085).toFixed(1);
+
+            // Update Metrics UI
+            document.getElementById('kpi-quality').innerText = qualityScore + "%";
+            document.getElementById('bar-quality').style.width = qualityScore + "%";
+
+            document.getElementById('kpi-retention').innerText = retentionRate + "%";
+            document.getElementById('bar-retention').style.width = retentionRate + "%";
+            document.getElementById('kpi-retention-count').innerText = `${Math.round(ds.totalRows * (retentionRate / 100))}/${ds.totalRows}`;
+
+            document.getElementById('kpi-cost').innerText = "$" + tokenCost;
+            document.getElementById('kpi-human-load').innerText = humanReviewLoad + "%";
+            document.getElementById('kpi-time-saved').innerText = timeSavedHours + " Hours";
+
+            // Update Strategy Matrix
+            document.getElementById('s1-q').innerText = (parseFloat(qualityScore) - 4.0).toFixed(1) + "%";
+            document.getElementById('s1-c').innerText = "$" + (tokenCost * 0.7).toFixed(2);
+
+            document.getElementById('s2-q').innerText = "99.8%";
+            document.getElementById('s2-r').innerText = "78.0%";
+            document.getElementById('s2-c').innerText = "$" + (tokenCost * 0.4).toFixed(2);
+
+            document.getElementById('s3-q').innerText = qualityScore + "%";
+            document.getElementById('s3-r').innerText = retentionRate + "%";
+            document.getElementById('s3-c').innerText = "$" + tokenCost;
+
+            renderPlotlyChart();
+        }
+
+        function changeDatasetScenario() {
+            currentDatasetKey = document.getElementById('dataset-selector').value;
+            recalculateAll();
+            renderDataTable();
+            renderOverridesTab();
+        }
+
+        function renderDataTable() {
+            const ds = datasetScenarios[currentDatasetKey];
+            const thead = document.getElementById('data-thead');
+            const tbody = document.getElementById('data-tbody');
+
+            thead.innerHTML = `<tr>${ds.columns.map(col => `<th class="p-2 border-b border-slate-800">${col}</th>`).join('')}</tr>`;
+
+            let rows = ds.raw;
+            if (activeDataState === "after") {
+                rows = ds.raw.map(r => {
+                    const cleanR = { ...r };
+                    Object.keys(cleanR).forEach(k => {
+                        if (cleanR[k] === null) cleanR[k] = "<span class='text-emerald-400 font-bold'>[Imputed]</span>";
+                        if (typeof cleanR[k] === 'number' && cleanR[k] > 200) cleanR[k] = "<span class='text-purple-400 font-bold'>[Capped 42]</span>";
+                    });
+                    return cleanR;
+                });
+            }
+
+            tbody.innerHTML = rows.map(r => `
+                <tr class="hover:bg-slate-900/50">
+                    ${ds.columns.map(c => `<td class="p-2 border-b border-slate-800/40">${r[c] === null ? '<span class="text-amber-400 font-bold bg-amber-500/10 px-1 rounded">NULL</span>' : r[c]}</td>`).join('')}
+                </tr>
+            `).join('');
+        }
+
+        function toggleDataState(state) {
+            activeDataState = state;
+            document.getElementById('btn-state-before').className = state === 'before' ? 'px-2.5 py-1 rounded text-[11px] font-bold bg-brand-600 text-white' : 'px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 text-slate-400';
+            document.getElementById('btn-state-after').className = state === 'after' ? 'px-2.5 py-1 rounded text-[11px] font-bold bg-brand-600 text-white' : 'px-2.5 py-1 rounded text-[11px] font-medium bg-slate-800 text-slate-400';
+            renderDataTable();
+        }
+
+        function renderPlotlyChart() {
+            const nullThresh = parseInt(document.getElementById('lever-null-thresh').value);
+            const zscore = parseFloat(document.getElementById('lever-zscore').value);
+
+            const traceBefore = {
+                x: ['Null Values', 'Outliers', 'Format Errors'],
+                y: [22, 14, 8],
+                name: 'Before Pipeline',
+                type: 'bar',
+                marker: { color: '#f59e0b' }
+            };
+
+            const traceAfter = {
+                x: ['Null Values', 'Outliers', 'Format Errors'],
+                y: [Math.max(0, 22 - Math.round(nullThresh * 0.7)), Math.max(0, 14 - Math.round(zscore * 3.5)), 0],
+                name: 'After Pipeline',
+                type: 'bar',
+                marker: { color: '#14b8a6' }
+            };
+
+            const layout = {
+                barmode: 'group',
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                margin: { t: 10, b: 30, l: 30, r: 10 },
+                showlegend: true,
+                legend: { font: { color: '#94a3b8', size: 10 }, orientation: 'h', y: 1.15 },
+                xaxis: { tickfont: { color: '#94a3b8', size: 10 } },
+                yaxis: { tickfont: { color: '#94a3b8', size: 10 } }
+            };
+
+            Plotly.newPlot('plotly-defect-chart', [traceBefore, traceAfter], layout, { responsive: true, displayModeBar: false });
+        }
+
+        function renderOverridesTab() {
+            const ds = datasetScenarios[currentDatasetKey];
+            const container = document.getElementById('override-list');
+
+            container.innerHTML = ds.columns.map(col => `
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-white font-mono">${col}</span>
+                        <p class="text-[10px] text-slate-500">Default: Global Auto-Fix</p>
+                    </div>
+                    <select class="bg-slate-950 border border-slate-700 rounded text-[11px] text-slate-200 px-2 py-1">
+                        <option value="auto">Global Auto-Fix</option>
+                        <option value="impute_median">Force Median Impute</option>
+                        <option value="drop">Force Drop Column</option>
+                        <option value="ignore">Ignore Issues</option>
+                    </select>
+                </div>
+            `).join('');
+        }
+
+        function switchTab(tabId) {
+            ['tab-preview', 'tab-chart', 'tab-overrides'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(tabId).classList.remove('hidden');
+
+            document.getElementById('btn-tab-preview').className = tabId === 'tab-preview' ? 'px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-600 text-white transition' : 'px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-slate-400 hover:text-white transition';
+            document.getElementById('btn-tab-chart').className = tabId === 'tab-chart' ? 'px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-600 text-white transition' : 'px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-slate-400 hover:text-white transition';
+            document.getElementById('btn-tab-overrides').className = tabId === 'tab-overrides' ? 'px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-600 text-white transition' : 'px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-slate-400 hover:text-white transition';
+
+            if (tabId === 'tab-chart') {
+                renderPlotlyChart();
+            }
+        }
+
+        function logConsole(msg) {
+            const consoleEl = document.getElementById('console-logs');
+            const div = document.createElement('div');
+            div.innerText = msg;
+            consoleEl.appendChild(div);
+            consoleEl.parentElement.scrollTop = consoleEl.parentElement.scrollHeight;
+        }
+
+        // Animated Simulation Runner
+        async function triggerPipelineRun() {
+            logConsole("--------------------------------------------------");
+            logConsole("🚀 [Orchestrator] Initiating 5-Agent Workflow Pipeline...");
+
+            const nodes = ["a1", "a2", "human", "a3", "a4", "a5"];
+            
+            // Agent 1
+            highlightNode("a1", "Running");
+            logConsole("🔍 [Agent 1 Profiler] Scanning CSV profile & statistics...");
+            await sleep(800);
+            highlightNode("a1", "Done");
+
+            // Agent 2
+            highlightNode("a2", "Running");
+            logConsole("🧠 [Agent 2 Planner] Generating JSON remediation plan...");
+            await sleep(800);
+            highlightNode("a2", "Done");
+
+            // Human Checkpoint Modal Trigger
+            highlightNode("human", "Pending");
+            logConsole("🛑 [Human Checkpoint] Fix confidence (78%) below threshold. Awaiting approval...");
+            
+            document.getElementById('modal-conf-val').innerText = document.getElementById('lever-confidence').value + "%";
+            document.getElementById('human-modal').classList.remove('hidden');
+
+            const approved = await new Promise(resolve => { humanApprovalPromiseResolver = resolve; });
+            document.getElementById('human-modal').classList.add('hidden');
+
+            if (!approved) {
+                logConsole("❌ [Human Checkpoint] User rejected strategy. Pipeline stopped.");
+                highlightNode("human", "Rejected");
+                return;
+            }
+
+            logConsole("👍 [Human Checkpoint] User approved strategy execution.");
+            highlightNode("human", "Done");
+
+            // Agent 3
+            highlightNode("a3", "Running");
+            logConsole("⚙️ [Agent 3 Code Executor] Running Pandas transformations...");
+            await sleep(900);
+            highlightNode("a3", "Done");
+
+            // Agent 4
+            highlightNode("a4", "Running");
+            logConsole("🧪 [Agent 4 Validator] Verifying dataset against post-cleaning rules...");
+            await sleep(800);
+            logConsole("✅ [Agent 4 Validator] Validation PASSED on 1st attempt!");
+            highlightNode("a4", "Done");
+
+            // Agent 5
+            highlightNode("a5", "Running");
+            logConsole("📊 [Agent 5 Dashboard Engineer] Generating Streamlit `app.py` script...");
+            await sleep(700);
+            highlightNode("a5", "Done");
+
+            logConsole("🎉 Pipeline execution completed successfully!");
+            toggleDataState('after');
+        }
+
+        function resolveHumanApproval(status) {
+            if (humanApprovalPromiseResolver) {
+                humanApprovalPromiseResolver(status);
+            }
+        }
+
+        function highlightNode(nodeId, status) {
+            const node = document.getElementById(`node-${nodeId}`);
+            const badge = node.querySelector('.agent-badge');
+
+            if (status === "Running") {
+                node.className = "bg-slate-900 border-2 border-brand-500 active-agent-glow rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300";
+                badge.innerText = "Running";
+                badge.className = "agent-badge text-[9px] px-1.5 py-0.5 rounded bg-brand-500/20 text-brand-300 border border-brand-500/40 animate-pulse";
+            } else if (status === "Done") {
+                node.className = "bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300";
+                badge.innerText = "Done";
+                badge.className = "agent-badge text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+            } else if (status === "Pending") {
+                node.className = "bg-slate-900 border-2 border-amber-500 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300";
+                badge.innerText = "Approval Needed";
+                badge.className = "agent-badge text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-bounce";
+            } else if (status === "Rejected") {
+                node.className = "bg-slate-900 border border-red-500/50 rounded-xl p-3 flex flex-col justify-between h-36 transition duration-300";
+                badge.innerText = "Stopped";
+                badge.className = "agent-badge text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400";
+            }
+        }
+
+        function exportAuditJson() {
+            const auditData = {
+                timestamp: new Date().toISOString(),
+                scenario: currentDatasetKey,
+                levers: {
+                    modelTier: document.getElementById('lever-model-tier').value,
+                    confidenceThreshold: document.getElementById('lever-confidence').value + "%",
+                    nullThreshold: document.getElementById('lever-null-thresh').value + "%",
+                    zscoreLimit: document.getElementById('lever-zscore').value + "sigma",
+                    maxRetries: document.getElementById('lever-retries').value
+                },
+                results: {
+                    qualityScore: document.getElementById('kpi-quality').innerText,
+                    preservationRate: document.getElementById('kpi-retention').innerText,
+                    estimatedCost: document.getElementById('kpi-cost').innerText
+                }
+            };
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(auditData, null, 2));
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            dlAnchorElem.setAttribute("download", `pipeline_audit_${currentDatasetKey}.json`);
+            dlAnchorElem.click();
+        }
+
+        function resetAllLevers() {
+            document.getElementById('lever-model-tier').value = 'balanced';
+            document.getElementById('lever-confidence').value = 85;
+            document.getElementById('lever-null-thresh').value = 25;
+            document.getElementById('lever-zscore').value = 3.0;
+            document.getElementById('lever-retries').value = 3;
+            recalculateAll();
+            logConsole("[System] Reset all configuration levers to default.");
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+    </script>
+</body>
+</html>
